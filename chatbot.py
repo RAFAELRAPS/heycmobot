@@ -1,36 +1,40 @@
+# chatbot.py
+from langchain_core.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.chains import RetrievalQA  # <-- FIXED
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
-
-# Load all PDFs from 'docs' folder
-docs_path = "docs"
-all_pages = []
-
-for filename in os.listdir(docs_path):
+# Load and split PDF documents
+docs_dir = "./docs"
+all_documents = []
+for filename in os.listdir(docs_dir):
     if filename.endswith(".pdf"):
-        loader = PyPDFLoader(os.path.join(docs_path, filename))
-        pages = loader.load_and_split()
-        all_pages.extend(pages)
+        loader = PyPDFLoader(os.path.join(docs_dir, filename))
+        pdf_documents = loader.load()
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        chunks = splitter.split_documents(pdf_documents)
+        all_documents.extend(chunks)
 
-# Split documents into chunks
-splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
-chunks = splitter.split_documents(all_pages)
+# Embed and create vector store
+embeddings = OpenAIEmbeddings()
+vectorstore = Chroma.from_documents(all_documents, embeddings, persist_directory="./chroma_db")
+retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
 
-# Embed using OpenAI
-embedding_model = OpenAIEmbeddings(model="text-embedding-ada-002")
-vectorstore = Chroma.from_documents(chunks, embedding_model, persist_directory="db")
-vectorstore.persist()
-
-# Create QA chain using GPT-4
-llm = ChatOpenAI(model="gpt-4", temperature=0.2)
-qa_chain = RetrievalQA.from_chain_type(
-    llm=llm,
-    retriever=vectorstore.as_retriever(),
-    return_source_documents=True
-)
+# LLM and QA chain
+llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0.0)
+system_prompt = """
+Use the given context to answer the user's question.
+If you don't know the answer, say you don't know.
+Keep the answer concise (max three sentences).
+Context: {context}
+"""
+prompt = ChatPromptTemplate.from_messages([
+    ("system", system_prompt),
+    ("human", "{input}")
+])
+qa_chain = create_stuff_documents_chain(llm, prompt)
+rag_chain = create_retrieval_chain(retriever, qa_chain)
