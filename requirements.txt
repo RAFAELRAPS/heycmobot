@@ -1,7 +1,6 @@
 langchain==0.1.13
 langchain-community==0.0.29
 langchain-openai==0.1.7
-langchain-core==0.1.45
 chromadb==0.4.22
 pypdf==3.17.4
 python-dotenv==1.0.1
