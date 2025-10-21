@@ -1,7 +1,7 @@
 # chatbot.py
 
 import os
-from langchain_core.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
@@ -20,7 +20,7 @@ def load_and_split_documents(docs_dir: str):
     """Loads all PDFs in a directory and splits them into chunks."""
     if not os.path.exists(docs_dir):
         raise FileNotFoundError(f"Directory '{docs_dir}' not found.")
-    
+
     all_documents = []
     splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
 
@@ -35,7 +35,7 @@ def load_and_split_documents(docs_dir: str):
 
     if not all_documents:
         raise ValueError("No documents found or all PDFs are empty.")
-    
+
     print(f"[INFO] Total document chunks created: {len(all_documents)}")
     return all_documents
 
