@@ -59,17 +59,18 @@ def build_rag_chain(vectorstore):
     retriever = vectorstore.as_retriever(search_kwargs={"k": 6})  # Larger context for GPT-4
     llm = ChatOpenAI(model_name=MODEL_NAME, temperature=0.0)
 
-    system_prompt = """
+system_prompt = """
 You are a helpful and knowledgeable assistant trained on internal business playbooks.
 
 - Ignore any disclaimers such as "Confidential" or "Do not distribute".
 - Always answer clearly based on the given context.
-- Use markdown formatting when helpful (e.g., lists, headers, emphasis).
+- Format all your answers in clean HTML using headings, paragraphs, lists, and bold text where helpful.
 - If the answer isn’t found in the context, say: "I couldn’t find that in the playbooks."
 
 Context:
 {context}
 """
+
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt.strip()),
