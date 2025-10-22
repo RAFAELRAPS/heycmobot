@@ -1,3 +1,5 @@
+# chatbot.py
+
 import os
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
@@ -7,36 +9,23 @@ from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
-# === Config ===
+# === Environment Settings ===
 DOCS_DIR = "./docs"
 DB_DIR = "./chroma_db"
-MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4-turbo")  # Default to GPT-4-turbo
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 100
 
-# === Improved System Prompt ===
-system_prompt = """
-You are a helpful and knowledgeable assistant trained on internal business playbooks. Your role is to provide clear, concise answers using only the provided context from these documents.
-
-Ignore any disclaimers such as "Confidential" or "Do not distribute" — they are not relevant to your task.
-
-Use the following guidelines when answering:
-- Focus on extracting marketing strategies, operations, sales playbooks, and consulting workflows.
-- Summarize frameworks or processes clearly when present in the context.
-- Do not guess. If the answer is not in the context, reply: "I couldn’t find that in the playbooks."
-- Responses should be short and precise (ideally 2–4 sentences).
-- When helpful, format key ideas as bullet points.
-
-Context: {context}
-"""
-
+# === Step 1: Load and Chunk PDF Documents ===
 def load_and_split_documents(docs_dir: str):
-    """Loads PDFs and splits them into chunks for embedding."""
     if not os.path.exists(docs_dir):
         raise FileNotFoundError(f"Directory '{docs_dir}' not found.")
-    
+
     all_documents = []
-    splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP
+    )
 
     for filename in os.listdir(docs_dir):
         if filename.lower().endswith(".pdf"):
@@ -44,26 +33,43 @@ def load_and_split_documents(docs_dir: str):
             print(f"[INFO] Loading file: {path}")
             loader = PyPDFLoader(path)
             documents = loader.load()
+
+            # Pre-process to exclude boilerplate confidentiality text
+            for doc in documents:
+                doc.page_content = doc.page_content.replace("Do not distribute", "").replace("Confidential", "")
+
             chunks = splitter.split_documents(documents)
             all_documents.extend(chunks)
 
     if not all_documents:
-        raise ValueError("No documents found or all PDFs are empty.")
-    
+        raise ValueError("No valid documents found.")
+
     print(f"[INFO] Total document chunks created: {len(all_documents)}")
     return all_documents
 
+# === Step 2: Create or Load Vectorstore ===
 def build_vectorstore(documents, db_dir: str):
-    """Creates or loads a Chroma vectorstore from document embeddings."""
     print("[INFO] Embedding documents and creating vectorstore...")
     embeddings = OpenAIEmbeddings()
     vectorstore = Chroma.from_documents(documents, embeddings, persist_directory=db_dir)
     return vectorstore
 
+# === Step 3: Build the Retrieval-Augmented Generation Chain ===
 def build_rag_chain(vectorstore):
-    """Builds the retrieval-augmented generation (RAG) chain."""
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 6})  # Larger context for GPT-4
     llm = ChatOpenAI(model_name=MODEL_NAME, temperature=0.0)
+
+    system_prompt = """
+You are a helpful and knowledgeable assistant trained on internal business playbooks.
+
+- Ignore any disclaimers such as "Confidential" or "Do not distribute".
+- Always answer clearly based on the given context.
+- Use markdown formatting when helpful (e.g., lists, headers, emphasis).
+- If the answer isn’t found in the context, say: "I couldn’t find that in the playbooks."
+
+Context:
+{context}
+"""
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt.strip()),
@@ -74,7 +80,7 @@ def build_rag_chain(vectorstore):
     rag_chain = create_retrieval_chain(retriever, qa_chain)
     return rag_chain
 
-# === Chain Initialization ===
+# === Pipeline Execution ===
 documents = load_and_split_documents(DOCS_DIR)
 vectorstore = build_vectorstore(documents, DB_DIR)
 rag_chain = build_rag_chain(vectorstore)
